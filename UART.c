@@ -1,7 +1,7 @@
 #include "lib/include.h"
 
 //Ashley Roxana configuración de UART4 que corresponde al PC4 y PC5 pag 895
-extern void Configurar_UART0(void)
+extern void Configurar_UART4(void)
 {
     //CONFIGURACIÓN DE LOS PINES
     //Paso 1 (RCGCUART) pag.344 habilita UART4  0->Disable 1->Enable
@@ -13,22 +13,23 @@ extern void Configurar_UART0(void)
     //(GPIOAFSEL) pag.688 Habilita función alternativa
     GPIOC->AFSEL = (1<<5) | (1<<4); //GPIO Port Control (GPIOPCTL) Habilita función alternativa en el pin C4 y C5 pag.688
 
+    //________AQUI ESTUVO EL ERROR____________
+    //Para indicar que el pin 5 y 4 funcionan como UART, de acuerdo a los bits de la tabla de AFSEL pag. 672
+    GPIOC->PCTL = (GPIOC->PCTL&0xFF00FFFF) | 0x00110000;    ////pag. 1351 para conocer que valor poner
+
+    //____________________________________________
     //Indicar entradas y salidas pag. 895 
             //      Rx(in) | Tx(out)
-    GPIOC -> DIR |= (0<<4) | (1<<5); //salida -> 1, entrada -> 0
+    //GPIOC -> DIR |= (0<<4) | (1<<5); //salida -> 1, entrada -> 0
 
     //Desabilitan resistencias pull up 
-    GPIOC -> PUR |= (0<<4) | (0<<5);
+    //GPIOC -> PUR |= (0<<4) | (0<<5);
 
     //Desabilitan resistencias pull down 
-    GPIOC -> PDR |= (0<<4) | (0<<5);
+    //GPIOC -> PDR |= (0<<4) | (0<<5);
 
-    //Para indicar que el pin 5 y 4 funcionan como UART, de acuerdo a los bits de la tabla de AFSEL pag. 672
-    GPIOC->PCTL = (1<<20) | (1<<16);  //pag. 1351 para conocer que valor poner
-    // ejemplo con A1 y A0: (1<<0) | (1<<4); otra forma de ponerlo: (GPIOA->PCTL&0xFFFFFF00) | 0x00000011;
-    
     // Habilitar el pin como digital GPIO (GPIODEN) pag.682
-    GPIOC->DEN = (1<<4) | (1<<5);//PC4 PC5
+    GPIOC->DEN = (1<<5)| (1<<4) ;//PC4 PC5
 
     //CONFIGURACIÓN DEL PERIFERICO UART
     // Desabilita/Limpia los registros pag. 918
@@ -45,7 +46,7 @@ extern void Configurar_UART0(void)
     UART4->FBRD = 14;  /* (parte fraccionaria del calculo) */
 
     //  UART Line Control (UARTLCRH) pag.916 bits
-    UART4->LCRH = (0x3<<5);  //Para que se tengan 8 bits, y |(1<<4); activar el bit de paridad pero solo con el uart0
+    UART4->LCRH = (0x3<<5)|(1<<4);  //Para que se tengan 8 bits, y |(1<<4); activar el bit de paridad pero solo con el uart0
    
     //  UART Clock Configuration(UARTCC) pag.939
     UART4->CC =(0<<0); /*PARA USAR EL RELOJ INTERNO*/
@@ -55,6 +56,7 @@ extern void Configurar_UART0(void)
 
 }
 
+//Para recibir datos
 extern char readChar(void)
 {
     //UART FR flag pag 911
@@ -66,43 +68,96 @@ extern char readChar(void)
     c = v; //convertir el entero a caracter
     return c; //solo regresa un caracter 
 }
+
+//Para enviar dato
 extern void printChar(char c) //mandar un caracter
 {
     while((UART4->FR & (1<<5)) != 0 ); //pregunta si el dato 5 está desocupado, si lo está sigue con la linea de datos y transmite
     UART4->DR = c; 
 }
-extern void printString(char* string)  //para enviar cadena 
+
+//Para enviar cadena de caracteres 
+extern void printString(char* string, int Largo)   
 {
-    while(*string) //string es la direccion de memoria para saber si está vacía o np, si está vacia se sale del ciclo
+    int i = 0; 
+
+    //string es la direccion de memoria para saber si está vacía o np, si está vacia se sale del ciclo
+    //Se le da unvalor mayor a 47 porque es a partir de donde son los valores de las letras en el ASCII
+    while(string[i]>47) 
     {
-        printChar(*(string++)); 
+        printChar(string[i]);
+        i++; 
     }
 }
 
-extern char * readString(char delimitador) //para invertir 
+//Para calcular el tamaño del arreglo 
+extern int readString(char delimitador, char *string)  
 {
-
    int i=0;
-   char *string = (char *)calloc(10,sizeof(char));
    char c = readChar();
-   while(c != delimitador)
+
+   while(c != delimitador) //lee cuando el caracter es distinto al caracter delimitador 
    {
-       *(string+i) = c;
+       string[i] = c;
        i++;
-       if(i%10==0)
-       {
-           string = realloc(string,(i+10)*sizeof(char));
-       }
        c = readChar();
    }
 
-   return string;
-
+   return i; //regresa i para saber el tamaño del arreglo
 }
-//Experimento 2
 
-//El envio es su nombre  (rave) 
+//Para invertir
+extern void Invertir(char *Nombre, int Largo) 
+{
 
-// invertirlo y regresarlo con numeros consecutivos
-// entre letras (e1v2a3r) 
+    //Variables 
+    int i = 1; //para indicar la posición del arreglo con el nombre
+    int a = 1; //para indicar que número se colocan entre las letras
+    int b = 0;//para indicar la posición del arreglo donde se guarda la inversión
+    int flag = 0;
+    int Size = Largo; //para guardar tamaño del nombre
+
+    if (Largo < 10) //Tamaño de memoria para nombres cortos
+
+        Largo = Largo + (Largo-1); //Para considerar el esapacio que el nombre ocupa y el que se ocuparía con los numeroes que van entre espacios
+     
+    else //Tamaño de memoria para nombres largos
+    {
+        Largo = 18 + ((Largo-9)*3); 
+    }
+
+    //Declaración del arreglo a ocupar para guardar la inverción
+    char invert[Largo]; 
+
+    //Para colocar los numeros entre letras
+    while (i<Largo) 
+    {
+        //Para leer e invertir las letras del nombre
+        if (flag == 0)
+        {
+            invert[b] = Nombre[Size-i]; //Size-i para indicar en que posición está la letra a guardar
+            i = i + 1;
+            b = b + 1;
+            flag  = 1;
+        }
+
+        //Para colocar los numero entre las letras
+        else
+        {
+            flag = 0; 
+            invert[b] = a + '0'; //Numero a colocar en el arreglo
+            a = a + 1;
+            b = b + 1;
+        }
+    }
+
+    //Se reasigna el valor de invert en nombre
+    for (int j = 0; j<=(Largo-1); j++)
+    {
+        Nombre[j] = invert[j];
+    }
+    for(int n = Largo; n <= 100; n++) //Hasta 100 porque fue lo max en lo que se declaró
+        Nombre[n] = 0;
+    return;
+}
 
